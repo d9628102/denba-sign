@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>DENBA 簽名</title>
+<!-- K106 乙方手寫簽名頁（Telegram 小程式）。純靜態：不存任何資料、不連任何伺服器；
+     簽名筆跡、姓名、同意勾選只透過 Telegram.WebApp.sendData 回到機器人（上限 4096 位元組）。
+     網址參數只有 c（合約編號）與 h（合約內容 sha256 前 12 碼），不含任何個資。 -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root { --bg:#ffffff; --fg:#111111; --muted:#666666; --line:#cccccc; --accent:#1f6feb; --pad:#fafafa; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#16181c; --fg:#eeeeee; --muted:#9aa0a6; --line:#3a3f45; --accent:#4c8dff; --pad:#ffffff; } }
+  :root[data-theme="dark"] { --bg:#16181c; --fg:#eeeeee; --muted:#9aa0a6; --line:#3a3f45; --accent:#4c8dff; --pad:#ffffff; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:16px/1.5 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .meta { color:var(--muted); font-size:13px; margin-bottom:12px; word-break:break-all; }
+  .padwrap { border:1px solid var(--line); border-radius:8px; background:var(--pad); position:relative; }
+  canvas { display:block; width:100%; height:auto; touch-action:none; border-radius:8px; }
+  .hint { position:absolute; left:0; right:0; top:42%; text-align:center; color:#aaaaaa; pointer-events:none; font-size:14px; }
+  .row { margin:12px 0; }
+  input[type=text] { width:100%; padding:10px; font-size:16px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  label.agree { display:flex; gap:8px; align-items:flex-start; }
+  label.agree input { width:22px; height:22px; margin-top:2px; }
+  button { padding:10px 14px; font-size:16px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  #send { width:100%; background:var(--accent); color:#ffffff; border:none; margin-top:4px; }
+  #send:disabled { opacity:.4; }
+  .err { color:#d93025; font-size:14px; min-height:1.5em; }
+</style>
+</head>
+<body>
+<h1>乙方簽名</h1>
+<div class="meta">合約編號 <span id="cno">—</span>｜內容核對碼 <span id="chash">—</span></div>
+<div class="padwrap"><canvas id="pad" width="800" height="300"></canvas><div class="hint" id="hint">請在框內手寫簽名</div></div>
+<div class="row"><button id="clear" type="button">重寫</button></div>
+<div class="row"><input id="name" type="text" maxlength="30" placeholder="請輸入姓名（須與合約乙方姓名相同）" autocomplete="off"></div>
+<div class="row"><label class="agree"><input id="agree" type="checkbox"><span>本人已閱讀並同意本合約全部條款</span></label></div>
+<div class="err" id="err"></div>
+<button id="send" type="button" disabled>送出簽名</button>
+<script>
+(function () {
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+  var q = new URLSearchParams(location.search);
+  var cno = (q.get("c") || "").match(/^[A-Za-z0-9-]{1,32}$/) ? q.get("c") : "";
+  var chash = (q.get("h") || "").match(/^[0-9a-f]{12}$/) ? q.get("h") : "";
+  document.getElementById("cno").textContent = cno || "（缺）";
+  document.getElementById("chash").textContent = chash || "（缺）";
+  var W = 400, H = 150;                      // 回傳座標的格線（0..399、0..149）
+  var cv = document.getElementById("pad"), ctx = cv.getContext("2d");
+  ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#111111";
+  var strokes = [], cur = null;
+  function pt(ev) {
+    var r = cv.getBoundingClientRect();
+    var x = Math.round((ev.clientX - r.left) / r.width * (W - 1)), y = Math.round((ev.clientY - r.top) / r.height * (H - 1));
+    return [Math.max(0, Math.min(W - 1, x)), Math.max(0, Math.min(H - 1, y))];
+  }
+  function draw(a, b) {
+    var sx = cv.width / W, sy = cv.height / H;
+    ctx.beginPath(); ctx.moveTo(a[0] * sx, a[1] * sy); ctx.lineTo(b[0] * sx, b[1] * sy); ctx.stroke();
+  }
+  cv.addEventListener("pointerdown", function (ev) { ev.preventDefault(); cv.setPointerCapture(ev.pointerId); var p = pt(ev); cur = [p]; strokes.push(cur); draw(p, p); document.getElementById("hint").style.display = "none"; check(); });
+  cv.addEventListener("pointermove", function (ev) { if (!cur) return; ev.preventDefault(); var p = pt(ev), last = cur[cur.length - 1]; if (p[0] !== last[0] || p[1] !== last[1]) { draw(last, p); cur.push(p); } });
+  function end() { cur = null; check(); }
+  cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end); cv.addEventListener("pointerleave", end);
+  document.getElementById("clear").onclick = function () { strokes = []; ctx.clearRect(0, 0, cv.width, cv.height); document.getElementById("hint").style.display = ""; check(); };
+  var nameEl = document.getElementById("name"), agreeEl = document.getElementById("agree"), sendEl = document.getElementById("send"), errEl = document.getElementById("err");
+  nameEl.oninput = check; agreeEl.onchange = check;
+  function npts() { var n = 0; strokes.forEach(function (s) { n += s.length; }); return n; }
+  function check() { sendEl.disabled = !(agreeEl.checked && nameEl.value.trim().length > 0 && npts() >= 10 && cno && chash); }
+  function simplify(minD) {               // 依最小距離抽點，確保資料量放得進 4096 位元組
+    return strokes.map(function (s) {
+      var out = [s[0]];
+      for (var i = 1; i < s.length; i++) { var l = out[out.length - 1]; if (Math.abs(s[i][0] - l[0]) + Math.abs(s[i][1] - l[1]) >= minD || i === s.length - 1) out.push(s[i]); }
+      var flat = []; out.forEach(function (p) { flat.push(p[0], p[1]); }); return flat;
+    });
+  }
+  sendEl.onclick = function () {
+    errEl.textContent = "";
+    if (!tg || !tg.sendData) { errEl.textContent = "請從機器人的「簽名」按鈕開啟此頁"; return; }
+    var payload = null;
+    for (var d = 1; d <= 12; d++) {
+      var body = JSON.stringify({ v: 1, c: cno, h: chash, agree: true, name: nameEl.value.trim(), w: W, hh: H, sig: simplify(d) });
+      if (new TextEncoder().encode(body).length <= 4000) { payload = body; break; }
+    }
+    if (!payload) { errEl.textContent = "簽名太複雜，請按重寫後簽得簡單一些"; return; }
+    tg.sendData(payload);                  // 送出後 Telegram 會自動關閉此頁
+  };
+})();
+</script>
+</body>
+</html>
