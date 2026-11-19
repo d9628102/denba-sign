@@ -2,46 +2,79 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>DENBA 簽名</title>
 <!-- K106 乙方手寫簽名頁（t=contract 合約簽署／t=return 歸還驗收單簽署）（Telegram 小程式）。純靜態：不存任何資料、不連任何伺服器；
      簽名筆跡、姓名、同意勾選只透過 Telegram.WebApp.sendData 回到機器人（上限 4096 位元組）。
-     網址參數只有 c（合約編號）與 h（合約內容 sha256 前 12 碼），不含任何個資。 -->
+     網址參數只有 c（合約編號）與 h（合約內容 sha256 前 12 碼），不含任何個資。
+     K106f 改版：畫面完全固定（不捲動、不彈跳、不縮放），橫放時簽名區放到最大；回傳資料格式與 v1 相同。 -->
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  :root { --bg:#ffffff; --fg:#111111; --muted:#666666; --line:#cccccc; --accent:#1f6feb; --pad:#fafafa; }
+  :root { --bg:#ffffff; --fg:#111111; --muted:#666666; --line:#bbbbbb; --accent:#1f6feb; --pad:#fcfcfa; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#16181c; --fg:#eeeeee; --muted:#9aa0a6; --line:#3a3f45; --accent:#4c8dff; --pad:#ffffff; } }
   :root[data-theme="dark"] { --bg:#16181c; --fg:#eeeeee; --muted:#9aa0a6; --line:#3a3f45; --accent:#4c8dff; --pad:#ffffff; }
-  * { box-sizing:border-box; }
-  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:16px/1.5 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; }
-  h1 { font-size:18px; margin:0 0 4px; }
-  .meta { color:var(--muted); font-size:13px; margin-bottom:12px; word-break:break-all; }
-  .padwrap { border:1px solid var(--line); border-radius:8px; background:var(--pad); position:relative; }
-  canvas { display:block; width:100%; height:auto; touch-action:none; border-radius:8px; }
-  .hint { position:absolute; left:0; right:0; top:42%; text-align:center; color:#aaaaaa; pointer-events:none; font-size:14px; }
-  .row { margin:12px 0; }
-  input[type=text] { width:100%; padding:10px; font-size:16px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
-  label.agree { display:flex; gap:8px; align-items:flex-start; }
-  label.agree input { width:22px; height:22px; margin-top:2px; }
-  button { padding:10px 14px; font-size:16px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
-  #send { width:100%; background:var(--accent); color:#ffffff; border:none; margin-top:4px; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; position:fixed; inset:0;
+    overscroll-behavior:none; touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+    -webkit-text-size-adjust:100%; background:var(--bg); color:var(--fg);
+    font:16px/1.4 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; }
+  #app { position:fixed; left:0; top:0; width:100%; height:100%; display:flex; flex-direction:column; gap:6px;
+    padding:max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  #top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:0 0 auto; }
+  #head { flex:1 1 180px; min-width:0; }
+  h1 { font-size:17px; margin:0; line-height:1.25; }
+  .meta { color:var(--muted); font-size:12px; word-break:break-all; line-height:1.3; }
+  #name { flex:1 1 220px; max-width:360px; min-height:44px; padding:8px 10px; font-size:16px; border:1px solid var(--line); border-radius:6px;
+    background:var(--bg); color:var(--fg); -webkit-user-select:text; user-select:text; touch-action:manipulation; }
+  #stage { flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; }
+  #padwrap { position:relative; border:2px solid var(--line); border-radius:10px; background:var(--pad); overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+  #hint { position:absolute; left:0; right:0; top:42%; text-align:center; color:#b0b0b0; pointer-events:none; font-size:20px; }
+  #bottom { display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:0 0 auto; }
+  button { min-height:44px; padding:8px 16px; font-size:16px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); touch-action:manipulation; }
+  label.agree { display:flex; gap:8px; align-items:center; flex:1 1 200px; font-size:14px; line-height:1.3; touch-action:manipulation; }
+  label.agree input { width:26px; height:26px; flex:0 0 auto; }
+  #send { flex:0 0 auto; min-width:130px; background:var(--accent); color:#ffffff; border:none; font-weight:700; }
   #send:disabled { opacity:.4; }
-  .err { color:#d93025; font-size:14px; min-height:1.5em; }
+  .err { color:#d93025; font-size:13px; width:100%; min-height:0; }
+  .err:empty { display:none; }
+  #rot { position:absolute; inset:0; z-index:9; background:var(--bg); display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; padding:24px; }
+  #rot.show { display:flex; }
+  #rot .ic { font-size:56px; animation:turn 2.2s ease-in-out infinite; }
+  @keyframes turn { 0%,25% { transform:rotate(0deg); } 60%,100% { transform:rotate(-90deg); } }
+  #rot b { font-size:20px; }
+  #rot span { color:var(--muted); font-size:14px; }
 </style>
 </head>
 <body>
-<h1 id="ttl">乙方簽名</h1>
-<div class="meta"><span id="clab">合約編號</span> <span id="cno">—</span>｜內容核對碼 <span id="chash">—</span></div>
-<div class="padwrap"><canvas id="pad" width="800" height="300"></canvas><div class="hint" id="hint">請在框內手寫簽名</div></div>
-<div class="row"><button id="clear" type="button">重寫</button></div>
-<div class="row"><input id="name" type="text" maxlength="30" placeholder="請輸入姓名（須與合約乙方姓名相同）" autocomplete="off"></div>
-<div class="row"><label class="agree"><input id="agree" type="checkbox"><span id="agreetxt">本人已閱讀並同意本合約全部條款</span></label></div>
-<div class="err" id="err"></div>
-<button id="send" type="button" disabled>送出簽名</button>
+<div id="app">
+  <div id="top">
+    <div id="head">
+      <h1 id="ttl">乙方簽名</h1>
+      <div class="meta"><span id="clab">合約編號</span> <span id="cno">—</span>｜內容核對碼 <span id="chash">—</span></div>
+    </div>
+    <input id="name" type="text" maxlength="30" enterkeyhint="done" placeholder="請輸入姓名（須與合約乙方姓名相同）" autocomplete="off">
+  </div>
+  <div id="stage"><div id="padwrap"><canvas id="pad" width="1600" height="600"></canvas><div id="hint">請在框內手寫簽名</div></div></div>
+  <div id="bottom">
+    <button id="clear" type="button">重寫</button>
+    <label class="agree"><input id="agree" type="checkbox"><span id="agreetxt">本人已閱讀並同意本合約全部條款</span></label>
+    <button id="send" type="button" disabled>送出簽名</button>
+    <div class="err" id="err"></div>
+  </div>
+  <div id="rot">
+    <div class="ic">📱</div>
+    <b>請把手機橫過來簽名</b>
+    <span>橫放時簽名區比較大、比較好寫。<br>如果手機鎖定了螢幕方向，請先在控制中心解除鎖定。</span>
+    <button id="rotskip" type="button">仍使用直式</button>
+  </div>
+</div>
 <script>
 (function () {
   var tg = window.Telegram && window.Telegram.WebApp;
-  if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+  function tgcall(name, a) { try { if (tg && typeof tg[name] === "function") tg[name](a); } catch (e) {} }
+  if (tg) { tgcall("ready"); tgcall("expand"); tgcall("disableVerticalSwipes"); tgcall("enableClosingConfirmation"); }
+
   var q = new URLSearchParams(location.search);
   var T = q.get("t") === "return" ? "return" : "contract";
   if (T === "return") {
@@ -54,9 +87,42 @@
   var chash = (q.get("h") || "").match(/^[0-9a-f]{12}$/) ? q.get("h") : "";
   document.getElementById("cno").textContent = cno || "（缺）";
   document.getElementById("chash").textContent = chash || "（缺）";
+
+  /* ---------- 固定畫面：禁止任何捲動、縮放、拖曳 ---------- */
+  var nameEl = document.getElementById("name");
+  document.addEventListener("touchmove", function (ev) { if (ev.target !== nameEl) ev.preventDefault(); }, { passive: false });
+  ["gesturestart", "gesturechange", "gestureend", "dblclick"].forEach(function (n) { document.addEventListener(n, function (ev) { ev.preventDefault(); }, { passive: false }); });
+  document.addEventListener("contextmenu", function (ev) { ev.preventDefault(); });
+  window.addEventListener("scroll", function () { window.scrollTo(0, 0); });
+
+  /* ---------- 簽名區大小：8:3（與回傳格線 400x150 同比例）塞滿可用空間 ---------- */
   var W = 400, H = 150;                      // 回傳座標的格線（0..399、0..149）
+  var app = document.getElementById("app"), stage = document.getElementById("stage"), padwrap = document.getElementById("padwrap");
+  var rot = document.getElementById("rot"), skipRot = false, lockedOrient = false, lastLand = null;
+  function viewH() { return (tg && tg.viewportStableHeight) ? tg.viewportStableHeight : window.innerHeight; }
+  function layout(force) {
+    if (!force && document.activeElement === nameEl) return;   // 打字、鍵盤出現時不要重排，畫面才不會跳動
+    var land = window.innerWidth > window.innerHeight;
+    if (!force && lastLand !== null && land !== lastLand) { /* 方向改變，往下重排 */ }
+    lastLand = land;
+    app.style.height = viewH() + "px";
+    var st = stage.getBoundingClientRect();
+    var w = Math.max(120, Math.min(st.width, st.height * 8 / 3)), h = w * 3 / 8;
+    padwrap.style.width = Math.floor(w) + "px"; padwrap.style.height = Math.floor(h) + "px";
+    rot.classList.toggle("show", !land && !skipRot);
+    if (land && !lockedOrient) { lockedOrient = true; tgcall("lockOrientation"); }   // 橫放後鎖定方向，簽名中不會翻轉
+  }
+  window.addEventListener("resize", function () { layout(false); });
+  window.addEventListener("orientationchange", function () { setTimeout(function () { layout(true); }, 250); });
+  if (tg && tg.onEvent) { try { tg.onEvent("viewportChanged", function (e) { if (!e || e.isStateStable) layout(false); }); } catch (e) {} }
+  nameEl.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); nameEl.blur(); } });
+  nameEl.addEventListener("blur", function () { setTimeout(function () { window.scrollTo(0, 0); layout(true); }, 150); });
+  document.getElementById("rotskip").onclick = function () { skipRot = true; layout(true); };
+  layout(true);
+
+  /* ---------- 手寫板 ---------- */
   var cv = document.getElementById("pad"), ctx = cv.getContext("2d");
-  ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#111111";
+  ctx.lineWidth = 11; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#111111";
   var strokes = [], cur = null;
   function pt(ev) {
     var r = cv.getBoundingClientRect();
@@ -67,12 +133,12 @@
     var sx = cv.width / W, sy = cv.height / H;
     ctx.beginPath(); ctx.moveTo(a[0] * sx, a[1] * sy); ctx.lineTo(b[0] * sx, b[1] * sy); ctx.stroke();
   }
-  cv.addEventListener("pointerdown", function (ev) { ev.preventDefault(); cv.setPointerCapture(ev.pointerId); var p = pt(ev); cur = [p]; strokes.push(cur); draw(p, p); document.getElementById("hint").style.display = "none"; check(); });
+  cv.addEventListener("pointerdown", function (ev) { ev.preventDefault(); if (document.activeElement === nameEl) nameEl.blur(); try { cv.setPointerCapture(ev.pointerId); } catch (e) {} var p = pt(ev); cur = [p]; strokes.push(cur); draw(p, p); document.getElementById("hint").style.display = "none"; check(); });
   cv.addEventListener("pointermove", function (ev) { if (!cur) return; ev.preventDefault(); var p = pt(ev), last = cur[cur.length - 1]; if (p[0] !== last[0] || p[1] !== last[1]) { draw(last, p); cur.push(p); } });
   function end() { cur = null; check(); }
   cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end); cv.addEventListener("pointerleave", end);
-  document.getElementById("clear").onclick = function () { strokes = []; ctx.clearRect(0, 0, cv.width, cv.height); document.getElementById("hint").style.display = ""; check(); };
-  var nameEl = document.getElementById("name"), agreeEl = document.getElementById("agree"), sendEl = document.getElementById("send"), errEl = document.getElementById("err");
+  document.getElementById("clear").onclick = function () { strokes = []; cur = null; ctx.clearRect(0, 0, cv.width, cv.height); document.getElementById("hint").style.display = ""; check(); };
+  var agreeEl = document.getElementById("agree"), sendEl = document.getElementById("send"), errEl = document.getElementById("err");
   nameEl.oninput = check; agreeEl.onchange = check;
   function npts() { var n = 0; strokes.forEach(function (s) { n += s.length; }); return n; }
   function check() { sendEl.disabled = !(agreeEl.checked && nameEl.value.trim().length > 0 && npts() >= 10 && cno && chash); }
